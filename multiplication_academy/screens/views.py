@@ -1,6 +1,8 @@
 from typing import TYPE_CHECKING
 from ..config import ACCENT, ERROR, MUTED
 from ..core.questions import table_questions
+from ..utils.space import PLANETS, COLORS
+import pygame
 if TYPE_CHECKING:
     from ..app import Academy
 
@@ -25,44 +27,60 @@ def profiles(app: "Academy") -> None:
 
 def menu(app: "Academy") -> None:
     ui = app.ui
-    ui.text(f"Привет, {app.profile.name}!", 70, 155, 36)
-    ui.text("Выбери таблицу. Короткие раунды — большой прогресс.", 70, 220, 23, MUTED)
+    ui.text(f"Капитан {app.profile.name}, к полёту!", 70, 150, 32)
+    ui.text("Выбери планету. Верные ответы заряжают корабль.", 70, 202, 23, MUTED)
     for i, table in enumerate(range(2, 10)):
-        x, y = 70 + (i % 4) * 245, 295 + (i // 4) * 125
-        ui.button(f"×{table}", (x, y, 225, 100), lambda t=table: app.start_round(t), True)
+        x, y = 70 + (i % 4) * 245, 275 + (i // 4) * 130
+        ui.button(f"×{table}   {PLANETS[i]}", (x, y, 225, 92), lambda t=table: app.start_round(t))
+        pygame.draw.circle(ui.surface, COLORS[i], (x + 25, y + 20), 7)
+        mastered = sum(app.profile.example(q.key).mastered for q in table_questions(table))
+        ui.text(f"Изучено: {mastered * 10}%", x + 20, y + 98, 18, MUTED)
     ui.button("Мой прогресс", (70, 575, 460, 70), lambda: app.navigate("progress"))
-    ui.button("Сменить профиль", (560, 575, 460, 70), lambda: app.navigate("profiles"))
-    ui.text("10 вопросов • 3 жизни • повторы сложных примеров", 70, 685, 22, MUTED)
+    ui.button("Сменить капитана", (560, 575, 460, 70), lambda: app.navigate("profiles"))
+    ui.text("10 вопросов • 3 щита • 3 верных подряд включают гипердрайв", 70, 685, 21, MUTED)
 
 
 def game(app: "Academy") -> None:
     ui, r = app.ui, app.round
     q, score = r.question, r.score
-    ui.text(f"Таблица ×{r.table}   •   Вопрос {r.count}/10", 70, 150, 26)
-    ui.text(f"Жизни: {score.lives}    Очки: {score.points}    Серия: {score.streak}", 70, 200, 23, ACCENT)
-    ui.panel((70, 260, 950, 150))
-    ui.text(f"{q.table} × {q.factor} = ?", 340, 292, 64)
+    ui.text(f"Миссия ×{r.table}   •   Сектор {r.count}/10", 70, 150, 25)
+    ui.text(f"Энергия: {score.points}    Серия: {score.streak}", 70, 195, 23, ACCENT)
+    ui.panel((70, 245, 540, 125))
+    expression = f"{q.table} × {q.factor} = ?"
+    label = ui.font(56).render(expression, True, (239, 244, 255))
+    ui.surface.blit(label, label.get_rect(center=(340, 307)))
+    ui.text("ЩИТЫ", 70, 390, 20, MUTED)
+    for i in range(3):
+        pygame.draw.rect(ui.surface, ACCENT if i < score.lives else (61, 66, 91), (155 + i * 42, 390, 30, 24), border_radius=7)
+    app.space.mission(ui, r.table, score.lives, score.streak)
     if r.answered:
         color = ACCENT if app.last_correct else ERROR
-        message = "Верно! Отличная работа." if app.last_correct else f"Запомним: {q.table} × {q.factor} = {q.answer}"
-        ui.text(message, 100, 460, 32, color)
-        ui.button("Результат" if r.finished else "Дальше", (320, 565, 460, 76), app.advance, True)
-        ui.text("Нажми Enter или пробел", 360, 665, 20, MUTED)
+        points = score.points - app.previous_points
+        message = f"+{points} энергии! " + ("Гипердрайв включён!" if score.streak >= 3 else "Курс верный!") if app.last_correct else f"Щит сработал! Запомним: {q.table} × {q.factor} = {q.answer}"
+        ui.text(message, 70, 466, 27, color)
+        ui.text("Летим дальше!" if app.last_correct else "Этот пример вернётся позже. Ты справишься!", 70, 514, 22, MUTED)
+        ui.button("Итоги миссии" if r.finished else "Следующий сектор", (320, 575, 460, 76), app.advance, True)
+        ui.text("Нажми Enter или пробел", 360, 680, 20, MUTED)
     else:
         for i, value in enumerate(r.options):
             ui.button(f"{i + 1}.   {value}", (70 + (i % 2) * 490, 455 + (i // 2) * 100, 460, 80), lambda v=value: app.answer(v))
-        ui.text("Выбери ответ мышью или клавишами 1–4", 70, 695, 20, MUTED)
+        ui.text("Заряди двигатель: выбери ответ мышью или клавишами 1–4", 70, 695, 20, MUTED)
 
 
 def result(app: "Academy") -> None:
     ui, score = app.ui, app.round.score
-    ui.text("Раунд завершён!", 70, 155, 42)
-    ui.text("Каждая попытка помогает запомнить больше.", 70, 220, 24, MUTED)
-    ui.panel((70, 280, 950, 245))
-    for i, label in enumerate([f"Верно: {score.correct}", f"Ошибок: {score.errors}", f"Очки: {score.points}", f"Лучшая серия: {score.best_streak}", f"Правильных ответов: {score.percentage}%"]):
-        ui.text(label, 100 + (i % 2) * 455, 305 + (i // 2) * 70, 28)
-    ui.button("Ещё раунд", (70, 575, 460, 75), lambda: app.start_round(app.round.table), True)
-    ui.button("Главное меню", (560, 575, 460, 75), lambda: app.navigate("menu"))
+    arrived = score.lives > 0
+    title = f"Планета {PLANETS[app.round.table - 2]} достигнута!" if arrived else "Возвращаемся на базу"
+    ui.text(title, 70, 145, 36)
+    ui.text("Отличный полёт, капитан!" if arrived else "Корабль в безопасности. Подзарядимся и попробуем ещё!", 70, 200, 23, MUTED)
+    medals = 3 if score.correct == 10 else 2 if score.correct == 9 else 1 if arrived else 0
+    for i in range(3):
+        app.space.medal(ui.surface, 450 + i * 100, 270, i < medals)
+    ui.panel((70, 325, 950, 215))
+    for i, label in enumerate([f"Верно: {score.correct}", f"Ошибок: {score.errors}", f"Энергия: {score.points}", f"Лучшая серия: {score.best_streak}", f"Правильных ответов: {score.percentage}%"]):
+        ui.text(label, 100 + (i % 2) * 455, 343 + (i // 2) * 60, 27)
+    ui.button("Повторить полёт", (70, 585, 460, 75), lambda: app.start_round(app.round.table), True)
+    ui.button("Выбрать планету", (560, 585, 460, 75), lambda: app.navigate("menu"))
 
 
 def progress(app: "Academy") -> None:

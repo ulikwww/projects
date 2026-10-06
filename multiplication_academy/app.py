@@ -7,6 +7,8 @@ from .core.progress import Profile, ProgressStore
 from .core.round import Round
 from .screens.views import VIEWS
 from .utils.ui import UI
+from .utils.effects import Effects
+from .utils.space import SpaceScene
 
 class Academy:
     def __init__(self, data_dir: Path = DATA_DIR):
@@ -15,6 +17,10 @@ class Academy:
         self.surface = pygame.display.set_mode((WIDTH, HEIGHT))
         self.ui = UI(self.surface)
         self.clock = pygame.time.Clock()
+        self.effects = Effects()
+        self.space = SpaceScene(self.effects)
+        self.dt = 1 / FPS
+        self.previous_points = 0
         self.store = ProgressStore(data_dir)
         self.profile: Profile | None = None
         self.round: Round | None = None
@@ -29,6 +35,13 @@ class Academy:
     def navigate(self, screen: str) -> None:
         self.screen = screen
         self.ui.buttons.clear()
+        if screen == "result" and self.round.score.lives > 0:
+            self.effects.burst(550, 220, (255, 206, 109), 90)
+
+    def toggle_sound(self) -> None:
+        self.effects.muted = not self.effects.muted
+        if self.effects.muted and pygame.mixer.get_init():
+            pygame.mixer.stop()
 
     def page(self, direction: int) -> None:
         self.profile_page = max(0, self.profile_page + direction)
@@ -46,6 +59,8 @@ class Academy:
         self.navigate("menu")
 
     def start_round(self, table: int) -> None:
+        self.space.reset()
+        self.effects.particles.clear()
         self.round = Round(self.profile, table)
         self.round.next_question()
         self.store.save()
@@ -54,7 +69,10 @@ class Academy:
     def answer(self, value: int) -> None:
         if self.round.answered:
             return
+        self.previous_points = self.round.score.points
         self.last_correct = self.round.answer(value)
+        self.effects.feedback(self.last_correct, self.round.score.streak)
+        self.space.target = self.round.score.correct / 10
         self.store.save()
         self.ui.buttons.clear()
 
@@ -92,13 +110,18 @@ class Academy:
     def frame(self) -> None:
         for event in pygame.event.get():
             self.handle(event)
+        self.effects.update(self.dt)
+        self.space.update(self.dt)
         self.surface.fill(BACKGROUND)
+        self.space.background(self.surface, self.screen == "game" and self.round.score.streak >= 3)
         self.ui.buttons.clear()
         self.ui.text("АКАДЕМИЯ УМНОЖЕНИЯ", 70, 45, 34)
-        self.ui.text("Учись • пробуй • побеждай", 70, 95, 20, MUTED)
+        self.ui.text("КОСМИЧЕСКАЯ МИССИЯ  /  Сила знаний", 70, 95, 20, MUTED)
+        self.ui.button("Звук: выкл" if self.effects.muted else "Звук: вкл", (850, 45, 180, 48), self.toggle_sound)
         VIEWS[self.screen](self)
+        self.effects.draw(self.surface)
         pygame.display.flip()
-        self.clock.tick(FPS)
+        self.dt = min(self.clock.tick(FPS) / 1000, .05)
 
     def run(self) -> None:
         try:
@@ -124,12 +147,19 @@ def main() -> None:
             pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
             app.frame()
             assert app.screen == "menu"
+            pygame.event.post(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=(900, 65)))
+            app.frame()
+            assert app.effects.muted
             app.start_round(7)
-            for _ in range(10):
+            for answered_count in range(10):
                 app.frame()
                 index = app.round.options.index(app.round.question.answer)
                 pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1 + index))
                 app.frame()
+                assert app.space.target == (answered_count + 1) / 10
+                assert app.effects.particles
+                if answered_count == 2:
+                    assert app.round.score.streak == 3
                 pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
                 app.frame()
             assert app.screen == "result" and app.round.score.correct == 10
